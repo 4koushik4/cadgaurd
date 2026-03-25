@@ -59,6 +59,7 @@ function performStressSimulation(
     mode: string;
   }>;
   visualizationData: Record<string, unknown>;
+  predictedLifeCycles: number;
 } {
   const appliedForce = loadConditions.reduce((sum, load) => sum + load.force, 0);
   const area = (geometry.cross_sectional_area as number) || 100;
@@ -73,6 +74,8 @@ function performStressSimulation(
   const maxDisplacement = (appliedForce * Math.pow(length, 3)) / (3 * material.youngs_modulus * momentOfInertia);
 
   const safetyFactor = material.yield_strength / maxStress;
+  const stressRatio = maxStress / material.yield_strength;
+  const predictedLifeCycles = Math.max(1000, Math.floor((1 / Math.max(stressRatio, 0.01)) * 250000));
 
   const failurePoints = [];
 
@@ -104,9 +107,20 @@ function performStressSimulation(
     mesh_nodes: 1000,
     stress_distribution: Array.from({ length: 50 }, (_, i) => ({
       position: i,
-      stress: maxStress * (0.3 + Math.random() * 0.7),
-      displacement: maxDisplacement * (0.2 + Math.random() * 0.8)
+      stress: maxStress * (0.35 + (i / 80)),
+      displacement: maxDisplacement * (0.2 + (i / 90))
     })),
+    digital_twin_timeline: Array.from({ length: 10 }, (_, step) => {
+      const loadScale = 0.8 + step * 0.08;
+      const stepStress = maxStress * loadScale;
+      const stepRatio = stepStress / material.yield_strength;
+      return {
+        step,
+        load_scale: Number(loadScale.toFixed(3)),
+        equivalent_stress: Number(stepStress.toFixed(3)),
+        predicted_damage: Number(Math.min(1, stepRatio * 0.7).toFixed(4)),
+      };
+    }),
     color_map: "jet",
     min_stress: nominalStress * 0.5,
     max_stress: maxStress
@@ -117,7 +131,8 @@ function performStressSimulation(
     maxDisplacement,
     safetyFactor,
     failurePoints,
-    visualizationData
+    visualizationData,
+    predictedLifeCycles
   };
 }
 
@@ -134,6 +149,18 @@ Deno.serve(async (req: Request) => {
     const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(supabaseUrl, supabaseKey);
 
+    const authHeader = req.headers.get("Authorization") || req.headers.get("authorization") || "";
+    const jwt = authHeader.replace(/^Bearer\s+/i, "").trim();
+
+    if (!jwt) {
+      throw new Error("Missing bearer token");
+    }
+
+    const { data: authData, error: authError } = await supabase.auth.getUser(jwt);
+    if (authError || !authData.user) {
+      throw new Error("Unauthorized request");
+    }
+
     const { projectId, materialType = "aluminum_6061", force = 1000 } = await req.json();
 
     if (!projectId) {
@@ -144,6 +171,7 @@ Deno.serve(async (req: Request) => {
       .from("projects")
       .select("*")
       .eq("id", projectId)
+      .eq("user_id", authData.user.id)
       .single();
 
     if (projectError || !project) {
@@ -160,13 +188,15 @@ Deno.serve(async (req: Request) => {
       }
     ];
 
+    const extracted = ((project.metadata as Record<string, unknown>)?.extracted_geometry as Record<string, unknown>) || {};
+    const dimensions = (extracted.dimensions as Record<string, unknown>) || {};
     const geometry = {
-      cross_sectional_area: 100 + Math.random() * 200,
-      length: 200 + Math.random() * 300,
-      moment_of_inertia: 800 + Math.random() * 400,
-      stress_concentration: 1.5 + Math.random() * 2,
-      has_sharp_corners: Math.random() > 0.6,
-      thin_section: Math.random() > 0.7,
+      cross_sectional_area: Number((project.metadata as Record<string, unknown>)?.cross_sectional_area || 120),
+      length: Number(dimensions.x || (project.metadata as Record<string, unknown>)?.length || 180),
+      moment_of_inertia: Number((project.metadata as Record<string, unknown>)?.moment_of_inertia || 950),
+      stress_concentration: Number((project.metadata as Record<string, unknown>)?.stress_concentration || 2.1),
+      has_sharp_corners: Boolean((project.metadata as Record<string, unknown>)?.sharp_corners ?? false),
+      thin_section: Number(extracted.wall_thickness || 2) < 1.8,
       ...(project.metadata as Record<string, unknown>)
     };
 
@@ -190,7 +220,8 @@ Deno.serve(async (req: Request) => {
         safety_factor: simulationResults.safetyFactor,
         failure_prediction: {
           points: simulationResults.failurePoints,
-          critical_locations: simulationResults.failurePoints.length
+          critical_locations: simulationResults.failurePoints.length,
+          predicted_life_cycles: simulationResults.predictedLifeCycles
         },
         visualization_data: simulationResults.visualizationData,
         passed: passed
@@ -202,6 +233,21 @@ Deno.serve(async (req: Request) => {
       throw new Error("Failed to save simulation results");
     }
 
+    await supabase
+      .from("reports")
+      .insert({
+        project_id: projectId,
+        report_type: "simulation_snapshot",
+        format: "web",
+        content: {
+          simulation_id: simulation.id,
+          passed,
+          max_stress: simulationResults.maxStress,
+          safety_factor: simulationResults.safetyFactor,
+          predicted_life_cycles: simulationResults.predictedLifeCycles
+        }
+      });
+
     return new Response(
       JSON.stringify({
         success: true,
@@ -209,7 +255,8 @@ Deno.serve(async (req: Request) => {
         passed: passed,
         maxStress: simulationResults.maxStress,
         safetyFactor: simulationResults.safetyFactor,
-        failurePoints: simulationResults.failurePoints.length
+        failurePoints: simulationResults.failurePoints.length,
+        predictedLifeCycles: simulationResults.predictedLifeCycles
       }),
       {
         headers: {
@@ -220,10 +267,14 @@ Deno.serve(async (req: Request) => {
     );
   } catch (error) {
     console.error("Simulation error:", error);
+    const message = (error as Error).message || "Unknown error";
+    const status = message.toLowerCase().includes("unauthorized") || message.toLowerCase().includes("bearer")
+      ? 401
+      : 500;
     return new Response(
-      JSON.stringify({ error: (error as Error).message }),
+      JSON.stringify({ error: message }),
       {
-        status: 500,
+        status,
         headers: {
           ...corsHeaders,
           "Content-Type": "application/json",

@@ -1,3 +1,102 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+:root {
+	--bg-base: #0a0a0f;
+	--bg-panel: rgba(20, 24, 38, 0.58);
+	--neon-cyan: #00f0ff;
+	--neon-purple: #8a2eff;
+	--neon-pink: #ff00c8;
+}
+
+body {
+	background: radial-gradient(circle at 20% 20%, rgba(0, 240, 255, 0.13), transparent 40%),
+		radial-gradient(circle at 80% 10%, rgba(138, 46, 255, 0.14), transparent 35%),
+		radial-gradient(circle at 40% 90%, rgba(255, 0, 200, 0.1), transparent 30%),
+		var(--bg-base);
+	color: #e8edf8;
+	min-height: 100vh;
+	scroll-behavior: smooth;
+}
+
+body.theme-muted {
+	background: radial-gradient(circle at 20% 20%, rgba(90, 120, 140, 0.12), transparent 40%),
+		radial-gradient(circle at 80% 10%, rgba(110, 110, 140, 0.12), transparent 35%),
+		#0b0f14;
+}
+
+body.theme-muted .neon-border-cyan,
+body.theme-muted .neon-border-purple,
+body.theme-muted .neon-border-pink {
+	box-shadow: none;
+}
+
+#root {
+	min-height: 100vh;
+}
+
+.glass-card {
+	background: var(--bg-panel);
+	border: 1px solid rgba(130, 150, 190, 0.22);
+	backdrop-filter: blur(18px);
+}
+
+.neon-border-cyan {
+	border-color: rgba(0, 240, 255, 0.45);
+	box-shadow: 0 0 26px rgba(0, 240, 255, 0.18);
+}
+
+.neon-border-purple {
+	border-color: rgba(138, 46, 255, 0.45);
+	box-shadow: 0 0 26px rgba(138, 46, 255, 0.18);
+}
+
+.neon-border-pink {
+	border-color: rgba(255, 0, 200, 0.45);
+	box-shadow: 0 0 26px rgba(255, 0, 200, 0.18);
+}
+
+.animated-grid {
+	position: relative;
+}
+
+.animated-grid::before {
+	content: "";
+	position: absolute;
+	inset: 0;
+	background-image: linear-gradient(rgba(0, 240, 255, 0.06) 1px, transparent 1px),
+		linear-gradient(90deg, rgba(0, 240, 255, 0.06) 1px, transparent 1px);
+	background-size: 46px 46px;
+	mask-image: radial-gradient(circle at center, black, transparent 75%);
+	pointer-events: none;
+}
+
+@keyframes pulseGlow {
+	0%,
+	100% {
+		box-shadow: 0 0 18px rgba(0, 240, 255, 0.28);
+	}
+	50% {
+		box-shadow: 0 0 30px rgba(255, 0, 200, 0.3);
+	}
+}
+
+.pulse-glow {
+	animation: pulseGlow 2.6s ease-in-out infinite;
+}
+
+@keyframes floatIn {
+	from {
+		opacity: 0;
+		transform: translateY(8px);
+	}
+	to {
+		opacity: 1;
+		transform: translateY(0);
+	}
+}
+
+.animate-float-in {
+	animation: floatIn 0.35s ease-out;
+}

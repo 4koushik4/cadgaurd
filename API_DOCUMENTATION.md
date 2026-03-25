@@ -10,10 +10,10 @@ https://your-project.supabase.co/functions/v1
 
 ## Authentication
 
-All API endpoints require authentication using Bearer token:
+All API endpoints require authentication using a user session access token:
 
 ```http
-Authorization: Bearer YOUR_SUPABASE_ANON_KEY
+Authorization: Bearer USER_ACCESS_TOKEN
 ```
 
 ## Edge Functions API
@@ -67,12 +67,12 @@ console.log(`Quality Score: ${data.qualityScore}%`);
 
 **Validation Rules**:
 1. Minimum Wall Thickness (≥2mm)
-2. Hole Spacing (≥5mm)
-3. Sharp Corner Detection
-4. Minimum Fillet Radius (≥1mm)
-5. Draft Angle Check (≥2°)
-6. Undercut Detection
-7. Aspect Ratio Check (≤10:1)
+2. Hole Alignment and Spacing Validation
+3. Clearance and Interference Detection
+4. Structural Integrity Heuristic
+5. Manufacturability (DFM) Check
+6. Minimum Fillet Radius (≥1mm)
+7. Draft Angle Check (≥2°)
 
 ---
 
@@ -223,6 +223,36 @@ console.log(`Processed ${data.processedIssues} issues`);
 
 ---
 
+### 4. Report Generation
+
+Generates a combined validation and digital twin report, stores it in Supabase Storage, and saves metadata in the reports table.
+
+**Endpoint**: `POST /generate-report`
+
+**Request Body**:
+```json
+{
+  "projectId": "uuid-string",
+  "format": "web"
+}
+```
+
+`format` options:
+- `web` (JSON report)
+- `pdf` (downloadable PDF report)
+
+**Response**:
+```json
+{
+  "success": true,
+  "reportId": "report-uuid",
+  "reportUrl": "https://.../storage/v1/object/public/reports/...json",
+  "generatedAt": "2026-03-24T20:12:00.000Z"
+}
+```
+
+---
+
 ## Database API (Supabase Client)
 
 ### Projects
@@ -358,16 +388,16 @@ const { data, error } = await supabase
 ```javascript
 const fileExt = file.name.split('.').pop();
 const fileName = `${Date.now()}-${file.name}`;
-const filePath = `cad-files/${fileName}`;
+const filePath = `${userId}/${fileName}`;
 
 const { error: uploadError } = await supabase.storage
-  .from('projects')
+  .from('cad-files')
   .upload(filePath, file);
 
 if (uploadError) throw uploadError;
 
 const { data: { publicUrl } } = supabase.storage
-  .from('projects')
+  .from('cad-files')
   .getPublicUrl(filePath);
 
 console.log('File uploaded:', publicUrl);
@@ -619,7 +649,7 @@ response = supabase.table('projects').select('*').execute()
 ```bash
 curl -X POST \
   'https://your-project.supabase.co/functions/v1/validate-design' \
-  -H 'Authorization: Bearer YOUR_ANON_KEY' \
+  -H 'Authorization: Bearer USER_ACCESS_TOKEN' \
   -H 'Content-Type: application/json' \
   -d '{"projectId": "abc-123"}'
 ```
@@ -633,12 +663,12 @@ curl -X POST \
 - Design validation endpoint
 - Stress simulation endpoint
 - AI analysis endpoint
+- Report generation endpoint
 - Complete database schema
 - Authentication system
 
 ### Upcoming
 - Batch validation endpoint
-- Report generation API
 - Webhook support
 - GraphQL API
 - REST API versioning

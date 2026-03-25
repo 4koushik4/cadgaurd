@@ -31,6 +31,9 @@ CADGuard AI is built on a modern, scalable architecture using React for the fron
 │  │  validate-   │  │run-simulation│  │ ai-analysis  │         │
 │  │   design     │  │              │  │              │         │
 │  └──────────────┘  └──────────────┘  └──────────────┘         │
+│  ┌──────────────┐                                             │
+│  │generate-report│                                             │
+│  └──────────────┘                                             │
 └─────────────────────────────────────────────────────────────────┘
                               │
                               ▼
@@ -225,6 +228,17 @@ safety_factor = yield_strength / max_stress
 - Predefined explanations for common issues
 - Rule-based suggestions
 - Works offline without AI API
+
+#### 4. generate-report Function
+**Location**: `supabase/functions/generate-report/index.ts`
+
+**Flow**:
+1. Validate authenticated user token
+2. Load project, latest validation, issues, and simulation
+3. Assemble report payload
+4. Upload JSON report to Supabase Storage (`reports` bucket)
+5. Save report metadata in `reports` table
+6. Return report URL for immediate access/download
 
 ## Data Flow
 

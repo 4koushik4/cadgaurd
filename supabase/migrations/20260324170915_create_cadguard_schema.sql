@@ -14,6 +14,25 @@
     - Users can only access their own data
 */
 
+-- Ensure migration is idempotent when rerun against partially initialized projects
+DROP POLICY IF EXISTS "Users can view own projects" ON projects;
+DROP POLICY IF EXISTS "Users can create own projects" ON projects;
+DROP POLICY IF EXISTS "Users can update own projects" ON projects;
+DROP POLICY IF EXISTS "Users can delete own projects" ON projects;
+DROP POLICY IF EXISTS "Users can view validations for own projects" ON validations;
+DROP POLICY IF EXISTS "Users can create validations for own projects" ON validations;
+DROP POLICY IF EXISTS "Users can update validations for own projects" ON validations;
+DROP POLICY IF EXISTS "Users can view issues for own projects" ON issues;
+DROP POLICY IF EXISTS "Users can create issues for own projects" ON issues;
+DROP POLICY IF EXISTS "Users can update issues for own projects" ON issues;
+DROP POLICY IF EXISTS "Users can view simulations for own projects" ON simulation_results;
+DROP POLICY IF EXISTS "Users can create simulations for own projects" ON simulation_results;
+DROP POLICY IF EXISTS "Users can view own design history" ON design_history;
+DROP POLICY IF EXISTS "Users can create own design history" ON design_history;
+DROP POLICY IF EXISTS "Users can update own design history" ON design_history;
+DROP POLICY IF EXISTS "Users can view reports for own projects" ON reports;
+DROP POLICY IF EXISTS "Users can create reports for own projects" ON reports;
+
 -- Projects table
 CREATE TABLE IF NOT EXISTS projects (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),

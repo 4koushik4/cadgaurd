@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 import { Activity, AlertTriangle, CheckCircle, TrendingUp, Zap } from 'lucide-react';
+import { StressHeatmap3D } from './StressHeatmap3D';
 
 interface SimulationResult {
   id: string;
@@ -47,149 +48,163 @@ export function SimulationView({ projectId }: SimulationViewProps) {
   if (loading) {
     return (
       <div className="text-center py-12">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
-        <p className="text-slate-600">Loading simulation results...</p>
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-cyan-400 mx-auto mb-4"></div>
+        <p className="text-cyan-100/80">Loading simulation results...</p>
       </div>
     );
   }
 
   if (simulations.length === 0) {
     return (
-      <div className="text-center py-12 bg-slate-50 rounded-lg">
-        <Activity className="w-16 h-16 text-slate-300 mx-auto mb-4" />
-        <h3 className="text-lg font-medium text-slate-900 mb-2">No simulation data yet</h3>
-        <p className="text-slate-600">Click "Run Simulation" to perform stress analysis</p>
+      <div className="text-center py-12 glass-card rounded-lg border border-cyan-400/25">
+        <Activity className="w-16 h-16 text-cyan-300/70 mx-auto mb-4" />
+        <h3 className="text-lg font-medium text-slate-100 mb-2">No simulation data yet</h3>
+        <p className="text-cyan-100/80">Click "Run Simulation" to perform stress analysis</p>
       </div>
     );
   }
 
   const latestSimulation = simulations[0];
-  const failurePoints = (latestSimulation.failure_prediction as { points?: unknown[] })?.points || [];
+  const weakRegions =
+    (latestSimulation.failure_prediction as { weak_regions?: Array<{ face_index: number; risk_score: number }> })
+      ?.weak_regions || [];
+  const riskLevel =
+    (latestSimulation.failure_prediction as { risk_level?: string })?.risk_level ||
+    (latestSimulation.passed ? 'low' : 'high');
+  const riskPercentage = Math.min(100, Math.max(5, Math.round((latestSimulation.max_stress / 250) * 100)));
+  const stressMap =
+    (latestSimulation.visualization_data as { stress_map?: Array<{ x: number; y: number; z: number; stress: number }> })?.stress_map || [];
 
   return (
     <div className="space-y-6">
       <div className={`border-2 rounded-xl p-6 ${
         latestSimulation.passed
-          ? 'bg-green-50 border-green-300'
-          : 'bg-red-50 border-red-300'
+          ? 'bg-emerald-500/12 border-emerald-400/30'
+          : 'bg-rose-500/12 border-rose-400/30'
       }`}>
         <div className="flex items-center space-x-3 mb-4">
           {latestSimulation.passed ? (
             <>
-              <CheckCircle className="w-8 h-8 text-green-600" />
+              <CheckCircle className="w-8 h-8 text-emerald-300" />
               <div>
-                <h3 className="text-xl font-bold text-green-900">Simulation Passed</h3>
-                <p className="text-green-700">Design meets structural requirements</p>
+                <h3 className="text-xl font-bold text-emerald-100">Simulation Passed</h3>
+                <p className="text-emerald-200">Design meets structural requirements</p>
               </div>
             </>
           ) : (
             <>
-              <AlertTriangle className="w-8 h-8 text-red-600" />
+              <AlertTriangle className="w-8 h-8 text-rose-300" />
               <div>
-                <h3 className="text-xl font-bold text-red-900">Simulation Failed</h3>
-                <p className="text-red-700">Design may fail under specified conditions</p>
+                <h3 className="text-xl font-bold text-rose-100">Simulation Failed</h3>
+                <p className="text-rose-200">Design may fail under specified conditions</p>
               </div>
             </>
           )}
         </div>
+        <div className="rounded-lg border border-slate-600/40 bg-slate-900/45 p-3">
+          <div className="flex items-center justify-between text-xs text-slate-300 mb-2">
+            <span>Failure Risk ({riskLevel.toUpperCase()})</span>
+            <span>{riskPercentage}%</span>
+          </div>
+          <div className="h-2 bg-slate-950 rounded overflow-hidden">
+            <div
+              className="h-full bg-gradient-to-r from-cyan-400 via-amber-400 to-rose-400"
+              style={{ width: `${riskPercentage}%` }}
+            />
+          </div>
+        </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <div className="bg-white border border-slate-200 rounded-lg p-6">
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+        <div className="glass-card border border-orange-400/30 rounded-lg p-6">
           <div className="flex items-center justify-between mb-3">
-            <Zap className="w-8 h-8 text-orange-600" />
+            <Zap className="w-8 h-8 text-orange-300" />
           </div>
-          <p className="text-sm text-slate-600 mb-1">Maximum Stress</p>
-          <p className="text-3xl font-bold text-slate-900">{latestSimulation.max_stress.toFixed(2)}</p>
-          <p className="text-sm text-slate-600">MPa</p>
+          <p className="text-sm text-slate-300 mb-1">Maximum Stress</p>
+          <p className="text-3xl font-bold text-slate-100">{latestSimulation.max_stress.toFixed(2)}</p>
+          <p className="text-sm text-slate-400">MPa</p>
         </div>
 
-        <div className="bg-white border border-slate-200 rounded-lg p-6">
+        <div className="glass-card border border-cyan-400/30 rounded-lg p-6">
           <div className="flex items-center justify-between mb-3">
-            <TrendingUp className="w-8 h-8 text-blue-600" />
+            <TrendingUp className="w-8 h-8 text-cyan-300" />
           </div>
-          <p className="text-sm text-slate-600 mb-1">Maximum Displacement</p>
-          <p className="text-3xl font-bold text-slate-900">{latestSimulation.max_displacement.toFixed(3)}</p>
-          <p className="text-sm text-slate-600">mm</p>
+          <p className="text-sm text-slate-300 mb-1">Maximum Displacement</p>
+          <p className="text-3xl font-bold text-slate-100">{latestSimulation.max_displacement.toFixed(3)}</p>
+          <p className="text-sm text-slate-400">mm</p>
         </div>
 
-        <div className="bg-white border border-slate-200 rounded-lg p-6">
+        <div className="glass-card border border-emerald-400/30 rounded-lg p-6">
           <div className="flex items-center justify-between mb-3">
             <CheckCircle className={`w-8 h-8 ${
-              latestSimulation.safety_factor >= 2 ? 'text-green-600' : 'text-red-600'
+              latestSimulation.safety_factor >= 2 ? 'text-emerald-300' : 'text-rose-300'
             }`} />
           </div>
-          <p className="text-sm text-slate-600 mb-1">Safety Factor</p>
+          <p className="text-sm text-slate-300 mb-1">Safety Factor</p>
           <p className={`text-3xl font-bold ${
-            latestSimulation.safety_factor >= 2 ? 'text-green-600' : 'text-red-600'
+            latestSimulation.safety_factor >= 2 ? 'text-emerald-300' : 'text-rose-300'
           }`}>
             {latestSimulation.safety_factor.toFixed(2)}
           </p>
-          <p className="text-sm text-slate-600">
+          <p className="text-sm text-slate-400">
             {latestSimulation.safety_factor >= 2 ? 'Acceptable' : 'Below recommended'}
           </p>
         </div>
+
+        <div className="glass-card border border-violet-400/30 rounded-lg p-6">
+          <div className="flex items-center justify-between mb-3">
+            <Activity className="w-8 h-8 text-violet-300" />
+          </div>
+          <p className="text-sm text-slate-300 mb-1">Weak Regions</p>
+          <p className="text-3xl font-bold text-slate-100">{weakRegions.length}</p>
+          <p className="text-sm text-slate-400">faces flagged</p>
+        </div>
       </div>
 
-      <div className="bg-white border border-slate-200 rounded-lg p-6">
-        <h3 className="text-lg font-semibold text-slate-900 mb-4">Load Conditions</h3>
+      <div className="glass-card border border-slate-600/35 rounded-lg p-6">
+        <h3 className="text-lg font-semibold text-slate-100 mb-4">Load Conditions</h3>
         <div className="grid grid-cols-2 gap-4 text-sm">
           {Object.entries(latestSimulation.load_conditions).map(([key, value]) => (
             <div key={key}>
-              <p className="text-slate-600 mb-1 capitalize">{key.replace(/_/g, ' ')}</p>
-              <p className="text-slate-900 font-medium">{String(value)}</p>
+              <p className="text-slate-400 mb-1 capitalize">{key.replace(/_/g, ' ')}</p>
+              <p className="text-slate-100 font-medium">{String(value)}</p>
             </div>
           ))}
         </div>
       </div>
 
-      <div className="bg-white border border-slate-200 rounded-lg p-6">
-        <h3 className="text-lg font-semibold text-slate-900 mb-4">Material Properties</h3>
+      <div className="glass-card border border-slate-600/35 rounded-lg p-6">
+        <h3 className="text-lg font-semibold text-slate-100 mb-4">Material Properties</h3>
         <div className="grid grid-cols-2 gap-4 text-sm">
           {Object.entries(latestSimulation.material_properties).map(([key, value]) => (
             <div key={key}>
-              <p className="text-slate-600 mb-1 capitalize">{key.replace(/_/g, ' ')}</p>
-              <p className="text-slate-900 font-medium">{String(value)}</p>
+              <p className="text-slate-400 mb-1 capitalize">{key.replace(/_/g, ' ')}</p>
+              <p className="text-slate-100 font-medium">{String(value)}</p>
             </div>
           ))}
         </div>
       </div>
 
-      {Array.isArray(failurePoints) && failurePoints.length > 0 && (
-        <div className="bg-red-50 border border-red-200 rounded-lg p-6">
-          <h3 className="text-lg font-semibold text-red-900 mb-4">Predicted Failure Points</h3>
+      {Array.isArray(weakRegions) && weakRegions.length > 0 && (
+        <div className="bg-rose-500/12 border border-rose-400/30 rounded-lg p-6">
+          <h3 className="text-lg font-semibold text-rose-100 mb-4">Predicted Weak Regions</h3>
           <div className="space-y-3">
-            {failurePoints.map((point: unknown, index: number) => {
-              const pointData = point as {
-                location?: { x?: number; y?: number; z?: number };
-                stress?: number;
-                mode?: string;
-              };
+            {weakRegions.map((region, index: number) => {
               return (
-                <div key={index} className="bg-white rounded-lg p-4 border border-red-300">
+                <div key={index} className="bg-slate-950/60 rounded-lg p-4 border border-rose-400/30">
                   <div className="flex items-start space-x-3">
-                    <AlertTriangle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
+                    <AlertTriangle className="w-5 h-5 text-rose-300 flex-shrink-0 mt-0.5" />
                     <div className="flex-1">
-                      <h4 className="font-semibold text-red-900 mb-2">Failure Point #{index + 1}</h4>
+                      <h4 className="font-semibold text-rose-100 mb-2">Weak Region #{index + 1}</h4>
                       <div className="grid grid-cols-2 gap-2 text-sm">
                         <div>
-                          <p className="text-slate-600">Location</p>
-                          <p className="text-slate-900 font-medium">
-                            X: {pointData.location?.x?.toFixed(2) || 'N/A'},
-                            Y: {pointData.location?.y?.toFixed(2) || 'N/A'},
-                            Z: {pointData.location?.z?.toFixed(2) || 'N/A'}
-                          </p>
+                          <p className="text-slate-400">Face Index</p>
+                          <p className="text-slate-100 font-medium">{region.face_index}</p>
                         </div>
                         <div>
-                          <p className="text-slate-600">Stress at Point</p>
-                          <p className="text-red-600 font-bold">{pointData.stress?.toFixed(2) || 'N/A'} MPa</p>
+                          <p className="text-slate-400">Risk Score</p>
+                          <p className="text-rose-300 font-bold">{region.risk_score.toFixed(2)} MPa</p>
                         </div>
-                        {pointData.mode && (
-                          <div className="col-span-2">
-                            <p className="text-slate-600">Failure Mode</p>
-                            <p className="text-slate-900 font-medium">{pointData.mode}</p>
-                          </div>
-                        )}
                       </div>
                     </div>
                   </div>
@@ -200,29 +215,26 @@ export function SimulationView({ projectId }: SimulationViewProps) {
         </div>
       )}
 
-      <div className="bg-blue-50 border border-blue-200 rounded-lg p-6">
-        <h3 className="text-lg font-semibold text-blue-900 mb-3">Stress Distribution Visualization</h3>
-        <div className="bg-white rounded-lg p-8 text-center border border-blue-300">
-          <Activity className="w-16 h-16 text-blue-400 mx-auto mb-3" />
-          <p className="text-slate-600">3D stress visualization would be rendered here</p>
-          <p className="text-sm text-slate-500 mt-2">
-            Heat map showing stress distribution across the model
-          </p>
-        </div>
+      <div className="bg-cyan-500/10 border border-cyan-400/30 rounded-lg p-6">
+        <h3 className="text-lg font-semibold text-cyan-100 mb-3">Stress Distribution Heatmap</h3>
+        <StressHeatmap3D points={stressMap} />
+        <p className="text-sm text-slate-300 mt-3">
+          Heatmap points: {stressMap.length}. Gradient uses blue for low stress and red for high stress.
+        </p>
       </div>
 
-      <div className="bg-slate-50 rounded-lg p-6">
-        <h3 className="text-lg font-semibold text-slate-900 mb-3">Simulation Details</h3>
+      <div className="glass-card rounded-lg p-6 border border-slate-600/35">
+        <h3 className="text-lg font-semibold text-slate-100 mb-3">Simulation Details</h3>
         <div className="grid grid-cols-2 gap-4 text-sm">
           <div>
-            <p className="text-slate-600 mb-1">Simulation Type</p>
-            <p className="text-slate-900 font-medium capitalize">
+            <p className="text-slate-400 mb-1">Simulation Type</p>
+            <p className="text-slate-100 font-medium capitalize">
               {latestSimulation.simulation_type.replace(/_/g, ' ')}
             </p>
           </div>
           <div>
-            <p className="text-slate-600 mb-1">Completed</p>
-            <p className="text-slate-900 font-medium">
+            <p className="text-slate-400 mb-1">Completed</p>
+            <p className="text-slate-100 font-medium">
               {new Date(latestSimulation.created_at).toLocaleString()}
             </p>
           </div>

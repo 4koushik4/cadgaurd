@@ -1,0 +1,13 @@
+project_id = "bxswtniujglibaqqxric"
+
+[functions.validate-design]
+verify_jwt = false
+
+[functions.run-simulation]
+verify_jwt = false
+
+[functions.ai-analysis]
+verify_jwt = false
+
+[functions.generate-report]
+verify_jwt = false

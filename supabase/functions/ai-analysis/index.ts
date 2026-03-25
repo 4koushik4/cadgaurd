@@ -27,7 +27,7 @@ async function callOpenAI(prompt: string, apiKey: string): Promise<string> {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "gpt-4",
+        model: "gpt-4o-mini",
         messages: [
           {
             role: "system",
@@ -51,6 +51,43 @@ async function callOpenAI(prompt: string, apiKey: string): Promise<string> {
     return data.choices[0].message.content;
   } catch (error) {
     console.error("OpenAI error:", error);
+    return "";
+  }
+}
+
+async function callGroq(prompt: string, apiKey: string): Promise<string> {
+  try {
+    const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "llama-3.3-70b-versatile",
+        messages: [
+          {
+            role: "system",
+            content: "You are an expert CAD design validation assistant. Provide clear, actionable explanations and suggestions for design issues."
+          },
+          {
+            role: "user",
+            content: prompt
+          }
+        ],
+        max_tokens: 300,
+        temperature: 0.6,
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error("Groq API call failed");
+    }
+
+    const data = await response.json();
+    return data.choices?.[0]?.message?.content || "";
+  } catch (error) {
+    console.error("Groq error:", error);
     return "";
   }
 }
@@ -96,10 +133,33 @@ Deno.serve(async (req: Request) => {
     const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(supabaseUrl, supabaseKey);
 
+    const authHeader = req.headers.get("Authorization") || req.headers.get("authorization") || "";
+    const jwt = authHeader.replace(/^Bearer\s+/i, "").trim();
+
+    if (!jwt) {
+      throw new Error("Missing bearer token");
+    }
+
+    const { data: authData, error: authError } = await supabase.auth.getUser(jwt);
+    if (authError || !authData.user) {
+      throw new Error("Unauthorized request");
+    }
+
     const { validationId, useAI = false } = await req.json();
 
     if (!validationId) {
       throw new Error("Validation ID is required");
+    }
+
+    const { data: validationRow, error: validationError } = await supabase
+      .from("validations")
+      .select("id, project_id, projects!inner(user_id)")
+      .eq("id", validationId)
+      .eq("projects.user_id", authData.user.id)
+      .single();
+
+    if (validationError || !validationRow) {
+      throw new Error("Validation not found for this user");
     }
 
     const { data: issues, error: issuesError } = await supabase
@@ -112,20 +172,21 @@ Deno.serve(async (req: Request) => {
     }
 
     const openaiApiKey = Deno.env.get("OPENAI_API_KEY");
-    const canUseAI = useAI && openaiApiKey;
+    const groqApiKey = Deno.env.get("GROQ_API_KEY");
+    const canUseAI = useAI && Boolean(openaiApiKey || groqApiKey);
 
     for (const issue of issues) {
       let explanation = "";
       let suggestion = "";
 
-      if (canUseAI && openaiApiKey) {
+      if (canUseAI) {
         const explanationPrompt = `
 Issue: ${issue.title}
 Description: ${issue.description}
 ${issue.measured_value ? `Measured: ${issue.measured_value} ${issue.unit}` : ""}
 ${issue.expected_value ? `Expected: ${issue.expected_value} ${issue.unit}` : ""}
 
-Explain in 2-3 sentences why this is a problem for CAD design, focusing on structural integrity and manufacturability.
+      Explain in 2-3 concise sentences why this is risky for CAD design quality, including impact on structural integrity, manufacturability, or assembly reliability.
 `;
 
         const suggestionPrompt = `
@@ -137,8 +198,13 @@ ${issue.expected_value ? `Expected: ${issue.expected_value} ${issue.unit}` : ""}
 Provide a specific, actionable fix in 2-3 sentences. Include numerical recommendations where applicable.
 `;
 
-        explanation = await callOpenAI(explanationPrompt, openaiApiKey);
-        suggestion = await callOpenAI(suggestionPrompt, openaiApiKey);
+        if (openaiApiKey) {
+          explanation = await callOpenAI(explanationPrompt, openaiApiKey);
+          suggestion = await callOpenAI(suggestionPrompt, openaiApiKey);
+        } else if (groqApiKey) {
+          explanation = await callGroq(explanationPrompt, groqApiKey);
+          suggestion = await callGroq(suggestionPrompt, groqApiKey);
+        }
       }
 
       if (!explanation) {
@@ -157,37 +223,44 @@ Provide a specific, actionable fix in 2-3 sentences. Include numerical recommend
         })
         .eq("id", issue.id);
 
-      const { data: historyExists } = await supabase
+      const { data: historyRow } = await supabase
         .from("design_history")
-        .select("id")
+        .select("id, usage_count")
+        .eq("user_id", authData.user.id)
         .eq("issue_pattern", issue.title)
         .maybeSingle();
 
-      if (historyExists) {
+      if (historyRow) {
         await supabase
           .from("design_history")
           .update({
-            usage_count: supabase.rpc("increment", { row_id: historyExists.id })
+            usage_count: Number(historyRow.usage_count || 0) + 1,
+            fix_applied: suggestion,
+            metadata: {
+              severity: issue.severity,
+              auto_generated: true,
+              last_validation_id: validationRow.id,
+              last_updated_at: new Date().toISOString()
+            },
+            updated_at: new Date().toISOString()
           })
-          .eq("id", historyExists.id);
+          .eq("id", historyRow.id);
       } else {
-        const { data: userData } = await supabase.auth.getUser();
-        if (userData.user) {
-          await supabase
-            .from("design_history")
-            .insert({
-              user_id: userData.user.id,
-              issue_pattern: issue.title,
-              fix_applied: suggestion,
-              success_rate: 0.85,
-              usage_count: 1,
-              category: issue.category,
-              metadata: {
-                severity: issue.severity,
-                auto_generated: true
-              }
-            });
-        }
+        await supabase
+          .from("design_history")
+          .insert({
+            user_id: authData.user.id,
+            issue_pattern: issue.title,
+            fix_applied: suggestion,
+            success_rate: 0.85,
+            usage_count: 1,
+            category: issue.category,
+            metadata: {
+              severity: issue.severity,
+              auto_generated: true,
+              source_validation_id: validationRow.id
+            }
+          });
       }
     }
 
@@ -206,10 +279,14 @@ Provide a specific, actionable fix in 2-3 sentences. Include numerical recommend
     );
   } catch (error) {
     console.error("AI analysis error:", error);
+    const message = (error as Error).message || "Unknown error";
+    const status = message.toLowerCase().includes("unauthorized") || message.toLowerCase().includes("bearer")
+      ? 401
+      : 500;
     return new Response(
-      JSON.stringify({ error: (error as Error).message }),
+      JSON.stringify({ error: message }),
       {
-        status: 500,
+        status,
         headers: {
           ...corsHeaders,
           "Content-Type": "application/json",

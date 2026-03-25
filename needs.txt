@@ -1,0 +1,9 @@
+create chatbot(give as a small icon on the right bottom on clcik should open interface for chat use groq appi )
+make dashboard messy and interactive like add more content into it is just a row 
+update and add new features to settings
+live validations in sidebar are static 
+add comparison feature 
+create landing page 
+on click notifications symbol show them 
+change the report format 
+also i want a bot use groq api for it to make the errors and issues resolve 

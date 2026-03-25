@@ -20,6 +20,7 @@ export interface Database {
           description: string;
           file_format: string;
           file_url: string;
+          file_path: string | null;
           file_size: number;
           quality_score: number;
           status: string;

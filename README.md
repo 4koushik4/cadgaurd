@@ -10,19 +10,19 @@ CADGuard AI is a comprehensive design validation platform that combines rule-bas
 
 ### 1. CAD Model Upload & Processing
 - Support for STL, STEP, and OBJ file formats
-- Automatic geometry extraction and metadata analysis
+- Automatic geometry feature extraction (dimensions, faces, edges, holes, thickness heuristics)
 - Secure file storage with Supabase Storage
 
 ### 2. Rule-Based Validation Engine
-The system implements 7 critical engineering validation rules:
+The system implements deterministic engineering rules:
 
 - **Minimum Wall Thickness**: Ensures structural integrity
-- **Hole Spacing Validation**: Prevents stress concentration
-- **Sharp Corner Detection**: Identifies manufacturing issues
+- **Hole Alignment and Spacing Validation**: Prevents stress concentration and assembly mismatch
+- **Clearance and Interference Detection**: Detects overlap and insufficient fit tolerance
+- **Structural Integrity Heuristic**: Detects low structural margin conditions
+- **Manufacturability (DFM) Check**: Scores production complexity
 - **Minimum Fillet Radius**: Validates manufacturability
 - **Draft Angle Check**: Ensures proper mold release
-- **Undercut Detection**: Identifies complex tooling requirements
-- **Aspect Ratio Check**: Prevents deflection and vibration issues
 
 ### 3. Digital Twin Stress Simulation
 - Finite element analysis simulation
@@ -43,8 +43,8 @@ Three specialized AI agents work together:
 - Real-time validation results
 - AI-generated explanations and suggestions
 - Severity-based issue categorization
-- Visual 3D model viewer with Three.js
-- Comprehensive simulation reports
+- Visual 3D model viewer with issue highlights and section view
+- JSON web reports and downloadable PDF reports
 
 ### 6. Self-Learning System
 - Stores design patterns and corrections
@@ -123,6 +123,11 @@ Generated validation and simulation reports.
 - Updates design history for learning
 - Supports both AI and fallback modes
 
+#### generate-report
+- Generates combined validation and simulation reports
+- Supports `web` (JSON) and `pdf` formats
+- Stores reports in Supabase Storage and metadata in DB
+
 ## Getting Started
 
 ### Prerequisites
@@ -142,10 +147,24 @@ npm install
 ```env
 VITE_SUPABASE_URL=your_supabase_url
 VITE_SUPABASE_ANON_KEY=your_supabase_anon_key
-VITE_OPENAI_API_KEY=your_openai_key
 ```
 
-4. Start development server:
+4. Apply migrations and deploy functions:
+```bash
+supabase link --project-ref <your-project-ref>
+supabase db push
+supabase functions deploy validate-design
+supabase functions deploy run-simulation
+supabase functions deploy ai-analysis
+supabase functions deploy generate-report
+```
+
+5. Set function secrets:
+```bash
+supabase secrets set OPENAI_API_KEY=<your_openai_api_key>
+```
+
+6. Start development server:
 ```bash
 npm run dev
 ```
@@ -237,6 +256,17 @@ Generates AI explanations and suggestions for issues.
 {
   "validationId": "uuid",
   "useAI": true
+}
+```
+
+### POST /functions/v1/generate-report
+Generates web/PDF report for a project and stores it in Supabase.
+
+**Request:**
+```json
+{
+  "projectId": "uuid",
+  "format": "pdf"
 }
 ```
 
