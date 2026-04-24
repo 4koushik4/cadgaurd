@@ -1,4 +1,4 @@
-import { Bell, Bot, FolderKanban, Gauge, GitCompareArrows, LogOut, Settings, Sparkles } from 'lucide-react';
+import { Bell, Bot, FolderKanban, Gauge, GitCompareArrows, LogOut, Settings, Sparkles, Grid3X3 } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { NavLink, Outlet, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
@@ -10,6 +10,8 @@ const navItems = [
   { to: '/dashboard', label: 'Dashboard', icon: Gauge },
   { to: '/projects', label: 'Projects', icon: FolderKanban },
   { to: '/compare', label: 'Compare', icon: GitCompareArrows },
+  { to: '/2d-viewer', label: '2D Viewer', icon: Grid3X3 },
+  { to: '/ai-design', label: 'AI Design', icon: Sparkles },
   { to: '/copilot', label: 'AI Copilot', icon: Bot },
   { to: '/reports', label: 'Reports', icon: Sparkles },
   { to: '/settings', label: 'Settings', icon: Settings },

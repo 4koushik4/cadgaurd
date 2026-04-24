@@ -218,3 +218,488 @@ export async function runBackendAutoFix(input: {
 
   return payload as BackendAutoFixResponse;
 }
+
+// Advanced 3D Geometry Analysis APIs
+export interface SectionViewResponse {
+  success: boolean;
+  section_count?: number;
+  message?: string;
+  properties?: Record<string, unknown>;
+}
+
+export interface HoleDetectionResult {
+  has_cavities: boolean;
+  cavity_volume: number;
+  cavity_percentage: number;
+  convex_volume: number;
+  mesh_volume: number;
+  message?: string;
+}
+
+export interface MeshRepairResult {
+  success: boolean;
+  issues_fixed: string[];
+  vertices_removed: number;
+  faces_removed: number;
+  is_watertight_before: boolean;
+  is_watertight_after: boolean;
+}
+
+export interface MeasurementResult {
+  distance?: number;
+  point1?: number[];
+  point2?: number[];
+  angle_degrees?: number;
+  angle_radians?: number;
+  vector1?: number[];
+  vector2?: number[];
+  units?: string;
+}
+
+export interface SharpEdgeDetectionResult {
+  sharp_edges_count: number;
+  threshold_degrees: number;
+  sharp_edges: Array<{ edge: number[]; angle_degrees: number; vertex_count: number }>;
+}
+
+export interface SurfaceFeatures {
+  average_edge_length: number;
+  total_edges: number;
+  euler_characteristic: number;
+  genus: number;
+  is_manifold: boolean;
+  triangles: number;
+}
+
+export async function analyzeGeometrySection(
+  file: File,
+  planeNormal: [number, number, number]
+): Promise<SectionViewResponse> {
+  const formData = new FormData();
+  formData.append('file', file);
+  formData.append('plane_normal_x', planeNormal[0].toString());
+  formData.append('plane_normal_y', planeNormal[1].toString());
+  formData.append('plane_normal_z', planeNormal[2].toString());
+
+  const response = await fetch(`${API_BASE}/geometry/section-view`, {
+    method: 'POST',
+    body: formData,
+  });
+
+  const payload = await response.json();
+  if (!response.ok) {
+    throw new Error(payload?.error?.message || 'Section view analysis failed');
+  }
+
+  return payload as SectionViewResponse;
+}
+
+export async function detectHolesInGeometry(file: File): Promise<HoleDetectionResult> {
+  const formData = new FormData();
+  formData.append('file', file);
+
+  const response = await fetch(`${API_BASE}/geometry/detect-holes`, {
+    method: 'POST',
+    body: formData,
+  });
+
+  const payload = await response.json();
+  if (!response.ok) {
+    throw new Error(payload?.error?.message || 'Hole detection failed');
+  }
+
+  return payload as HoleDetectionResult;
+}
+
+export async function repairMesh(file: File): Promise<MeshRepairResult> {
+  const formData = new FormData();
+  formData.append('file', file);
+  formData.append('remove_unreferenced', 'true');
+  formData.append('merge_duplicates', 'true');
+  formData.append('fix_normals', 'true');
+
+  const response = await fetch(`${API_BASE}/geometry/repair`, {
+    method: 'POST',
+    body: formData,
+  });
+
+  const payload = await response.json();
+  if (!response.ok) {
+    throw new Error(payload?.error?.message || 'Mesh repair failed');
+  }
+
+  return payload as MeshRepairResult;
+}
+
+export async function measureDistance(
+  file: File,
+  p1: [number, number, number],
+  p2: [number, number, number]
+): Promise<MeasurementResult> {
+  const formData = new FormData();
+  formData.append('file', file);
+  formData.append('p1_x', p1[0].toString());
+  formData.append('p1_y', p1[1].toString());
+  formData.append('p1_z', p1[2].toString());
+  formData.append('p2_x', p2[0].toString());
+  formData.append('p2_y', p2[1].toString());
+  formData.append('p2_z', p2[2].toString());
+
+  const response = await fetch(`${API_BASE}/geometry/measure-distance`, {
+    method: 'POST',
+    body: formData,
+  });
+
+  const payload = await response.json();
+  if (!response.ok) {
+    throw new Error(payload?.error?.message || 'Distance measurement failed');
+  }
+
+  return payload as MeasurementResult;
+}
+
+export async function measureAngle(v1: [number, number, number], v2: [number, number, number]): Promise<MeasurementResult> {
+  const formData = new FormData();
+  formData.append('v1_x', v1[0].toString());
+  formData.append('v1_y', v1[1].toString());
+  formData.append('v1_z', v1[2].toString());
+  formData.append('v2_x', v2[0].toString());
+  formData.append('v2_y', v2[1].toString());
+  formData.append('v2_z', v2[2].toString());
+
+  const response = await fetch(`${API_BASE}/geometry/measure-angle`, {
+    method: 'POST',
+    body: formData,
+  });
+
+  const payload = await response.json();
+  if (!response.ok) {
+    throw new Error(payload?.error?.message || 'Angle measurement failed');
+  }
+
+  return payload as MeasurementResult;
+}
+
+export async function detectSharpEdges(file: File, threshold: number = 20): Promise<SharpEdgeDetectionResult> {
+  const formData = new FormData();
+  formData.append('file', file);
+  formData.append('angle_threshold', threshold.toString());
+
+  const response = await fetch(`${API_BASE}/geometry/detect-sharp-edges`, {
+    method: 'POST',
+    body: formData,
+  });
+
+  const payload = await response.json();
+  if (!response.ok) {
+    throw new Error(payload?.error?.message || 'Sharp edge detection failed');
+  }
+
+  return payload as SharpEdgeDetectionResult;
+}
+
+export async function analyzeSurfaceFeatures(file: File): Promise<SurfaceFeatures> {
+  const formData = new FormData();
+  formData.append('file', file);
+
+  const response = await fetch(`${API_BASE}/geometry/surface-features`, {
+    method: 'POST',
+    body: formData,
+  });
+
+  const payload = await response.json();
+  if (!response.ok) {
+    throw new Error(payload?.error?.message || 'Surface features analysis failed');
+  }
+
+  return payload as SurfaceFeatures;
+}
+
+// 2D CAD APIs
+export interface CAD2DFileResponse {
+  format: string;
+  layer_count?: number;
+  path_count?: number;
+  entity_count?: number;
+  layers?: Record<string, unknown>;
+  paths?: unknown[];
+  bounding_box: {
+    min_x: number;
+    min_y: number;
+    max_x: number;
+    max_y: number;
+    width: number;
+    height: number;
+  };
+  metadata: Record<string, unknown>;
+}
+
+export interface Geometry2DAnalysis {
+  total_entities: number;
+  lines: number;
+  circles: number;
+  polygons: number;
+  total_perimeter: number;
+  total_area: number;
+  bounding_box: Record<string, number>;
+  complexity_score: number;
+}
+
+export interface Geometry2DValidation {
+  is_valid: boolean;
+  total_issues: number;
+  errors: number;
+  warnings: number;
+  info: number;
+  issues: Array<{
+    type: string;
+    severity: string;
+    description: string;
+    entity_type?: string;
+    entity_count?: number;
+  }>;
+}
+
+export interface Measurement2D {
+  distance?: number;
+  point1?: number[];
+  point2?: number[];
+  delta_x?: number;
+  delta_y?: number;
+  angle_degrees?: number;
+  angle_radians?: number;
+  vector1?: number[];
+  vector2?: number[];
+  units?: string;
+}
+
+export async function load2DFile(file: File): Promise<CAD2DFileResponse> {
+  const formData = new FormData();
+  formData.append('file', file);
+
+  const response = await fetch(`${API_BASE}/2d/load`, {
+    method: 'POST',
+    body: formData,
+  });
+
+  const payload = await response.json();
+  if (!response.ok) {
+    throw new Error(payload?.error?.message || '2D file loading failed');
+  }
+
+  return payload as CAD2DFileResponse;
+}
+
+export async function analyze2DGeometry(file: File): Promise<Geometry2DAnalysis> {
+  const formData = new FormData();
+  formData.append('file', file);
+
+  const response = await fetch(`${API_BASE}/2d/analyze`, {
+    method: 'POST',
+    body: formData,
+  });
+
+  const payload = await response.json();
+  if (!response.ok) {
+    throw new Error(payload?.error?.message || '2D geometry analysis failed');
+  }
+
+  return payload as Geometry2DAnalysis;
+}
+
+export async function validate2DGeometry(file: File): Promise<Geometry2DValidation> {
+  const formData = new FormData();
+  formData.append('file', file);
+
+  const response = await fetch(`${API_BASE}/2d/validate`, {
+    method: 'POST',
+    body: formData,
+  });
+
+  const payload = await response.json();
+  if (!response.ok) {
+    throw new Error(payload?.error?.message || '2D geometry validation failed');
+  }
+
+  return payload as Geometry2DValidation;
+}
+
+export async function measure2DDistance(p1: [number, number], p2: [number, number]): Promise<Measurement2D> {
+  const formData = new FormData();
+  formData.append('p1_x', p1[0].toString());
+  formData.append('p1_y', p1[1].toString());
+  formData.append('p2_x', p2[0].toString());
+  formData.append('p2_y', p2[1].toString());
+
+  const response = await fetch(`${API_BASE}/2d/measure-distance`, {
+    method: 'POST',
+    body: formData,
+  });
+
+  const payload = await response.json();
+  if (!response.ok) {
+    throw new Error(payload?.error?.message || '2D distance measurement failed');
+  }
+
+  return payload as Measurement2D;
+}
+
+export async function measure2DAngle(v1: [number, number], v2: [number, number]): Promise<Measurement2D> {
+  const formData = new FormData();
+  formData.append('v1_x', v1[0].toString());
+  formData.append('v1_y', v1[1].toString());
+  formData.append('v2_x', v2[0].toString());
+  formData.append('v2_y', v2[1].toString());
+
+  const response = await fetch(`${API_BASE}/2d/measure-angle`, {
+    method: 'POST',
+    body: formData,
+  });
+
+  const payload = await response.json();
+  if (!response.ok) {
+    throw new Error(payload?.error?.message || '2D angle measurement failed');
+  }
+
+  return payload as Measurement2D;
+}
+
+// AI Design Creator APIs
+export interface AIDesignConcept {
+  type: string;
+  description: string;
+  dimensions: string;
+  structure: string;
+  recommendations: string;
+  rendering_hints: {
+    primary_shapes: string[];
+    colors: string[];
+    complexity_level: string;
+  };
+}
+
+export interface Primitive3D {
+  type: string;
+  position: number[];
+  scale?: number[];
+  radius?: number;
+  height?: number;
+  color: string;
+  rotation?: number[];
+  major_radius?: number;
+  minor_radius?: number;
+}
+
+export interface Design3DRendering {
+  primitives: Primitive3D[];
+  total_primitives: number;
+  bounding_box: Record<string, number>;
+  rendering_notes: string;
+}
+
+export interface Shape2D {
+  type: string;
+  x?: number;
+  y?: number;
+  width?: number;
+  height?: number;
+  cx?: number;
+  cy?: number;
+  r?: number;
+  points?: string;
+  d?: string;
+  color: string;
+  stroke?: string;
+  stroke_width?: number;
+}
+
+export interface Design2DRendering {
+  shapes: Shape2D[];
+  total_shapes: number;
+  canvas_size: { width: number; height: number };
+  rendering_notes: string;
+}
+
+export interface CompleteDesignResponse {
+  design_concept: AIDesignConcept;
+  rendering_3d?: Design3DRendering;
+  rendering_2d?: Design2DRendering;
+  export_options: {
+    recommended_formats: Array<{
+      format: string;
+      description: string;
+      recommended: boolean;
+      file_extension: string;
+    }>;
+    design_type: string;
+    notes: string;
+  };
+}
+
+export async function generateDesign(prompt: string, designType: string = 'auto'): Promise<AIDesignConcept> {
+  const response = await fetch(`${API_BASE}/design/generate`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ user_prompt: prompt, design_type: designType }),
+  });
+
+  const payload = await response.json();
+  if (!response.ok) {
+    throw new Error(payload?.error?.message || 'Design generation failed');
+  }
+
+  return payload as AIDesignConcept;
+}
+
+export async function renderDesign3D(prompt: string, designType: string = 'auto'): Promise<Design3DRendering> {
+  const response = await fetch(`${API_BASE}/design/render-3d`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ user_prompt: prompt, design_type: designType }),
+  });
+
+  const payload = await response.json();
+  if (!response.ok) {
+    throw new Error(payload?.error?.message || '3D rendering failed');
+  }
+
+  return payload as Design3DRendering;
+}
+
+export async function renderDesign2D(prompt: string, designType: string = 'auto'): Promise<Design2DRendering> {
+  const response = await fetch(`${API_BASE}/design/render-2d`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ user_prompt: prompt, design_type: designType }),
+  });
+
+  const payload = await response.json();
+  if (!response.ok) {
+    throw new Error(payload?.error?.message || '2D rendering failed');
+  }
+
+  return payload as Design2DRendering;
+}
+
+export async function generateCompleteDesign(prompt: string, designType: string = 'auto'): Promise<CompleteDesignResponse> {
+  const response = await fetch(`${API_BASE}/design/complete`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ user_prompt: prompt, design_type: designType }),
+  });
+
+  const payload = await response.json();
+  if (!response.ok) {
+    throw new Error(payload?.error?.message || 'Complete design generation failed');
+  }
+
+  return payload as CompleteDesignResponse;
+}

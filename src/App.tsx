@@ -12,6 +12,8 @@ import { SettingsPage } from './pages/SettingsPage';
 import { LandingPage } from './pages/LandingPage';
 import { ComparePage } from './pages/ComparePage';
 import { FloatingChatbot } from './components/FloatingChatbot';
+import { CAD2DViewerPage } from './pages/CAD2DViewerPage';
+import { AIDesignCreatorPage } from './pages/AIDesignCreatorPage';
 
 function ProtectedArea() {
   const { user, loading } = useAuth();
@@ -39,6 +41,8 @@ function ProtectedArea() {
           <Route path="/projects" element={<ProjectsPage />} />
           <Route path="/projects/:id" element={<ProjectDetailsPage />} />
           <Route path="/compare" element={<ComparePage />} />
+          <Route path="/2d-viewer" element={<CAD2DViewerPage />} />
+          <Route path="/ai-design" element={<AIDesignCreatorPage />} />
           <Route path="/copilot" element={<CopilotPage />} />
           <Route path="/reports" element={<ReportsPage />} />
           <Route path="/settings" element={<SettingsPage />} />
