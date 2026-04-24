@@ -89,7 +89,7 @@ export interface BackendAutoFixResponse {
   fixes: BackendAutoFixSuggestion[];
 }
 
-const API_BASE = import.meta.env.VITE_FASTAPI_URL || 'http://localhost:8000';
+export const API_BASE = import.meta.env.VITE_FASTAPI_URL || 'http://localhost:8000';
 
 export function resolveBackendUrl(pathOrUrl: string): string {
   if (!pathOrUrl) return pathOrUrl;
