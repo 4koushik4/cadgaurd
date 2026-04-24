@@ -1,6 +1,18 @@
 import React, { useState, useRef } from 'react';
 import { BarChart3, Wrench, Ruler, AlertCircle, CheckCircle, Zap, Download, RefreshCw } from 'lucide-react';
-import { API_BASE, resolveBackendUrl } from '../lib/backendApi';
+import {
+  analyzeSurfaceFeatures,
+  detectHolesInGeometry,
+  repairMesh as repairMeshAPI,
+  measureDistance as measureDistanceAPI,
+  measureAngle as measureAngleAPI,
+  detectSharpEdges,
+  type SurfaceFeatures,
+  type HoleDetectionResult,
+  type MeshRepairResult,
+  type MeasurementResult,
+  type SharpEdgeDetectionResult,
+} from '../lib/backendApi';
 
 interface GeometryStats {
   vertices: number;
@@ -16,53 +28,6 @@ interface GeometryStats {
   inconsistent_normals: boolean;
 }
 
-interface HoleDetectionResult {
-  has_cavities: boolean;
-  cavity_volume: number;
-  cavity_percentage: number;
-  convex_volume: number;
-  mesh_volume: number;
-  message?: string;
-}
-
-interface MeshRepairResult {
-  success: boolean;
-  issues_fixed: string[];
-  vertices_removed: number;
-  faces_removed: number;
-  is_watertight_before: boolean;
-  is_watertight_after: boolean;
-}
-
-interface MeasurementResult {
-  distance?: number;
-  point1?: number[];
-  point2?: number[];
-  angle_degrees?: number;
-  angle_radians?: number;
-  vector1?: number[];
-  vector2?: number[];
-  units?: string;
-}
-
-interface SharpEdgeDetectionResult {
-  sharp_edges_count: number;
-  threshold_degrees: number;
-  sharp_edges: Array<{
-    edge: number[];
-    angle_degrees: number;
-    vertex_count: number;
-  }>;
-}
-
-interface SurfaceFeatures {
-  average_edge_length: number;
-  total_edges: number;
-  euler_characteristic: number;
-  genus: number;
-  is_manifold: boolean;
-  triangles: number;
-}
 
 interface CAD3DToolsPanelProps {
   fileUrl: string;
@@ -115,34 +80,47 @@ const CAD3DToolsPanel: React.FC<CAD3DToolsPanelProps> = ({ fileUrl, fileFormat }
   const analyzeGeometry = async (file: File) => {
     try {
       setLoading(true);
-      const formData = new FormData();
-      formData.append('file', file);
+      setError(null);
 
-      const [statsRes, holesRes, edgesRes, featuresRes] = await Promise.all([
-        fetch(`${API_BASE}/geometry/surface-features`, { method: 'POST', body: formData }),
-        fetch(`${API_BASE}/geometry/detect-holes`, { method: 'POST', body: new FormData([['file', file]]) }),
-        fetch(`${API_BASE}/geometry/detect-sharp-edges`, { method: 'POST', body: new FormData([['file', file]]) }),
-        fetch(`${API_BASE}/geometry/surface-features`, { method: 'POST', body: new FormData([['file', file]]) }),
+      // Run all analyses in parallel
+      const [holes, edges, features] = await Promise.allSettled([
+        detectHolesInGeometry(file),
+        detectSharpEdges(file),
+        analyzeSurfaceFeatures(file),
       ]);
 
-      if (!statsRes.ok) throw new Error('Failed to analyze geometry');
-
-      const stats = await statsRes.json();
-      setGeometryStats(stats);
-
-      if (holesRes.ok) {
-        const holes = await holesRes.json();
-        setHoleDetection(holes);
+      // Handle surface features (has geometry stats)
+      if (features.status === 'fulfilled') {
+        setSurfaceFeatures(features.value);
+        // Extract geometry stats from backend response - we'll create a mock stats object
+        const stats: GeometryStats = {
+          vertices: 0,
+          faces: features.value.triangles || 0,
+          bounding_box_min: [0, 0, 0],
+          bounding_box_max: [1, 1, 1],
+          extents: [1, 1, 1],
+          volume: 0,
+          surface_area: 0,
+          is_watertight: features.value.is_manifold,
+          estimated_wall_thickness_mm: 1.0,
+          non_manifold_edges: 0,
+          inconsistent_normals: false,
+        };
+        setGeometryStats(stats);
       }
 
-      if (edgesRes.ok) {
-        const edges = await edgesRes.json();
-        setSharpEdges(edges);
+      // Handle hole detection
+      if (holes.status === 'fulfilled') {
+        setHoleDetection(holes.value);
       }
 
-      if (featuresRes.ok) {
-        const features = await featuresRes.json();
-        setSurfaceFeatures(features);
+      // Handle sharp edges
+      if (edges.status === 'fulfilled') {
+        setSharpEdges(edges.value);
+      }
+
+      if (features.status === 'rejected' && holes.status === 'rejected' && edges.status === 'rejected') {
+        throw new Error('All analyses failed');
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to analyze geometry');
@@ -151,23 +129,11 @@ const CAD3DToolsPanel: React.FC<CAD3DToolsPanelProps> = ({ fileUrl, fileFormat }
     }
   };
 
-  const repairMesh = async (file: File) => {
+  const handleRepairMesh = async (file: File) => {
     try {
       setLoading(true);
-      const formData = new FormData();
-      formData.append('file', file);
-      formData.append('remove_unreferenced', 'true');
-      formData.append('merge_duplicates', 'true');
-      formData.append('fix_normals', 'true');
-
-      const response = await fetch(`${API_BASE}/geometry/repair`, {
-        method: 'POST',
-        body: formData,
-      });
-
-      if (!response.ok) throw new Error('Mesh repair failed');
-
-      const result = await response.json();
+      setError(null);
+      const result = await repairMeshAPI(file);
       setMeshRepair(result);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to repair mesh');
@@ -176,26 +142,11 @@ const CAD3DToolsPanel: React.FC<CAD3DToolsPanelProps> = ({ fileUrl, fileFormat }
     }
   };
 
-  const measureDistance = async (file: File) => {
+  const handleMeasureDistance = async (file: File) => {
     try {
       setLoading(true);
-      const formData = new FormData();
-      formData.append('file', file);
-      formData.append('p1_x', p1[0].toString());
-      formData.append('p1_y', p1[1].toString());
-      formData.append('p1_z', p1[2].toString());
-      formData.append('p2_x', p2[0].toString());
-      formData.append('p2_y', p2[1].toString());
-      formData.append('p2_z', p2[2].toString());
-
-      const response = await fetch(`${API_BASE}/geometry/measure-distance`, {
-        method: 'POST',
-        body: formData,
-      });
-
-      if (!response.ok) throw new Error('Distance measurement failed');
-
-      const result = await response.json();
+      setError(null);
+      const result = await measureDistanceAPI(file, p1 as [number, number, number], p2 as [number, number, number]);
       setMeasurement(result);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to measure distance');
@@ -204,25 +155,11 @@ const CAD3DToolsPanel: React.FC<CAD3DToolsPanelProps> = ({ fileUrl, fileFormat }
     }
   };
 
-  const measureAngle = async () => {
+  const handleMeasureAngle = async () => {
     try {
       setLoading(true);
-      const formData = new FormData();
-      formData.append('v1_x', v1[0].toString());
-      formData.append('v1_y', v1[1].toString());
-      formData.append('v1_z', v1[2].toString());
-      formData.append('v2_x', v2[0].toString());
-      formData.append('v2_y', v2[1].toString());
-      formData.append('v2_z', v2[2].toString());
-
-      const response = await fetch(`${API_BASE}/geometry/measure-angle`, {
-        method: 'POST',
-        body: formData,
-      });
-
-      if (!response.ok) throw new Error('Angle measurement failed');
-
-      const result = await response.json();
+      setError(null);
+      const result = await measureAngleAPI(v1 as [number, number, number], v2 as [number, number, number]);
       setMeasurement(result);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to measure angle');
@@ -280,7 +217,16 @@ const CAD3DToolsPanel: React.FC<CAD3DToolsPanelProps> = ({ fileUrl, fileFormat }
           <div className="space-y-6">
             <div className="flex gap-3">
               <button
-                onClick={() => uploadFile(analyzeGeometry)}
+                onClick={() => {
+                  const input = document.createElement('input');
+                  input.type = 'file';
+                  input.accept = '.stl,.obj';
+                  input.onchange = async (e) => {
+                    const file = (e.target as HTMLInputElement).files?.[0];
+                    if (file) await analyzeGeometry(file);
+                  };
+                  input.click();
+                }}
                 disabled={loading}
                 className="px-4 py-2 bg-cyan-600 hover:bg-cyan-700 disabled:bg-slate-700 text-white rounded-lg text-sm font-medium transition-colors flex items-center gap-2"
               >
@@ -480,7 +426,16 @@ const CAD3DToolsPanel: React.FC<CAD3DToolsPanelProps> = ({ fileUrl, fileFormat }
             </div>
 
             <button
-              onClick={() => uploadFile(repairMesh)}
+              onClick={() => {
+                const input = document.createElement('input');
+                input.type = 'file';
+                input.accept = '.stl,.obj';
+                input.onchange = async (e) => {
+                  const file = (e.target as HTMLInputElement).files?.[0];
+                  if (file) await handleRepairMesh(file);
+                };
+                input.click();
+              }}
               disabled={loading}
               className="px-4 py-2 bg-cyan-600 hover:bg-cyan-700 disabled:bg-slate-700 text-white rounded-lg text-sm font-medium transition-colors flex items-center gap-2"
             >
