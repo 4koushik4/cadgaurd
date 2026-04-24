@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import io
 import tempfile
 from pathlib import Path
 from typing import Any
@@ -50,8 +49,11 @@ class CAD2DService:
             raise CADGuardError("DXF support not available. Please install ezdxf.", 500)
         
         try:
-            # Load DXF from bytes
-            doc = ezdxf.readfile(io.BytesIO(file_bytes))
+            # ezdxf.readfile expects a filesystem path, not an in-memory buffer.
+            with tempfile.TemporaryDirectory() as tmp_dir:
+                temp_path = Path(tmp_dir) / "upload.dxf"
+                temp_path.write_bytes(file_bytes)
+                doc = ezdxf.readfile(temp_path)
         except Exception as e:
             raise CADGuardError(f"Failed to parse DXF file: {str(e)}", 400)
         
@@ -62,7 +64,11 @@ class CAD2DService:
         msp = doc.modelspace()
         
         for entity in msp:
-            entity_data = self._extract_dxf_entity(entity)
+            try:
+                entity_data = self._extract_dxf_entity(entity)
+            except Exception:
+                # Skip malformed or unsupported entities instead of failing the whole file.
+                continue
             if entity_data:
                 layer_name = entity.dxf.layer if hasattr(entity.dxf, "layer") else "default"
                 
@@ -124,11 +130,28 @@ class CAD2DService:
             }
         
         elif entity_type == "POLYLINE":
-            points = [tuple(p)[:2] for p in entity.get_points()]
+            points_2d: list[tuple[float, float]] = []
+
+            # POLYLINE entities in ezdxf expose vertices differently than LWPOLYLINE.
+            if hasattr(entity, "points"):
+                try:
+                    points_2d = [tuple(p)[:2] for p in entity.points()]
+                except Exception:
+                    points_2d = []
+
+            if not points_2d and hasattr(entity, "vertices"):
+                for vertex in entity.vertices:
+                    location = getattr(vertex.dxf, "location", None)
+                    if location is not None:
+                        points_2d.append((float(location[0]), float(location[1])))
+
+            if not points_2d:
+                return None
+
             return {
                 "type": "polyline",
-                "vertices": [[float(p[0]), float(p[1])] for p in points],
-                "vertex_count": len(points),
+                "vertices": [[float(p[0]), float(p[1])] for p in points_2d],
+                "vertex_count": len(points_2d),
                 "is_closed": bool(entity.dxf.flags & 1),
                 "color": entity.dxf.color if hasattr(entity.dxf, "color") else None,
             }

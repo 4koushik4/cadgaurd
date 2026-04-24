@@ -50,6 +50,11 @@ const defaultPreferences: UserPreferences = {
 
 const AppDataContext = createContext<AppDataContextType | undefined>(undefined);
 
+const isMissingSupabaseTableError = (error: unknown) => {
+  const code = (error as { code?: string } | null)?.code;
+  return code === 'PGRST205' || code === '42P01';
+};
+
 export function AppDataProvider({ children }: { children: ReactNode }) {
   const { user } = useAuth();
   const [projects, setProjects] = useState<Project[]>([]);
@@ -59,6 +64,8 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
   const [preferences, setPreferences] = useState<UserPreferences>(defaultPreferences);
   const [loading, setLoading] = useState(true);
   const [aiByProject, setAIByProject] = useState<Record<string, AICopilotResponse>>({});
+  const [notificationsAvailable, setNotificationsAvailable] = useState(true);
+  const [preferencesAvailable, setPreferencesAvailable] = useState(true);
 
   const refreshProjectsAndStats = async () => {
     const [{ data: projectsData }, { data: validationsData }, { data: issuesData }, { data: runningValidations }] = await Promise.all([
@@ -93,17 +100,35 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
   };
 
   const refreshNotifications = async () => {
-    const { data } = await supabase
+    if (!notificationsAvailable) {
+      setNotifications([]);
+      return;
+    }
+
+    const { data, error } = await supabase
       .from('notifications')
       .select('id, user_id, type, title, message, level, is_read, metadata, created_at')
       .order('created_at', { ascending: false })
       .limit(20);
+
+    if (error) {
+      if (isMissingSupabaseTableError(error)) {
+        setNotificationsAvailable(false);
+      }
+      setNotifications([]);
+      return;
+    }
 
     setNotifications((data || []) as AppNotification[]);
   };
 
   const loadPreferences = async () => {
     if (!user) {
+      setPreferences(defaultPreferences);
+      return;
+    }
+
+    if (!preferencesAvailable) {
       setPreferences(defaultPreferences);
       return;
     }
@@ -115,12 +140,18 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
       .maybeSingle();
 
     if (error) {
+      if (isMissingSupabaseTableError(error)) {
+        setPreferencesAvailable(false);
+      }
       setPreferences(defaultPreferences);
       return;
     }
 
     if (!data) {
-      await supabase.from('user_preferences').upsert({ user_id: user.id, ...defaultPreferences });
+      const { error: upsertError } = await supabase.from('user_preferences').upsert({ user_id: user.id, ...defaultPreferences });
+      if (upsertError && isMissingSupabaseTableError(upsertError)) {
+        setPreferencesAvailable(false);
+      }
       setPreferences(defaultPreferences);
       return;
     }
@@ -135,7 +166,7 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
     level?: AppNotification['level'];
     metadata?: Record<string, unknown>;
   }) => {
-    if (!user) return;
+    if (!user || !notificationsAvailable) return;
 
     await supabase.from('notifications').insert({
       user_id: user.id,
@@ -149,7 +180,7 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
   };
 
   const markAllNotificationsRead = async () => {
-    if (!notifications.length) return;
+    if (!notificationsAvailable || !notifications.length) return;
 
     const unreadIds = notifications.filter((n) => !n.is_read).map((n) => n.id);
     if (!unreadIds.length) return;
@@ -162,6 +193,7 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
     if (!user) return;
     const next = { ...preferences, ...patch };
     setPreferences(next);
+    if (!preferencesAvailable) return;
     await supabase.from('user_preferences').upsert({ user_id: user.id, ...next });
   };
 
@@ -172,6 +204,8 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
       setLiveValidations([]);
       setNotifications([]);
       setPreferences(defaultPreferences);
+      setNotificationsAvailable(true);
+      setPreferencesAvailable(true);
       setLoading(false);
       return;
     }

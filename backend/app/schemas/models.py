@@ -246,19 +246,18 @@ class DesignGenerationInput(BaseModel):
     design_type: str = "auto"  # auto, 2d, 3d
 
 
-class RenderingHints(BaseModel):
-    primary_shapes: list[str]
-    colors: list[str]
-    complexity_level: str
-
-
 class AIDesignConcept(BaseModel):
-    type: str  # "2d" or "3d"
-    description: str
-    dimensions: str
-    structure: str
-    recommendations: str
-    rendering_hints: RenderingHints
+    type: str  # "2D" or "3D"
+    model: str
+    parameters: dict | None = None
+    shapes: list[dict] | None = None
+    operations: list[str] = Field(default_factory=list)
+
+
+class FeatureNode(BaseModel):
+    name: str
+    operation: str
+    parameters: dict = Field(default_factory=dict)
 
 
 class Primitive3D(BaseModel):
@@ -283,10 +282,11 @@ class BoundingBox3D(BaseModel):
 
 
 class Design3DRendering(BaseModel):
-    primitives: list[Primitive3D]
-    total_primitives: int
+    mesh_url: str
     bounding_box: BoundingBox3D
+    feature_tree: list[FeatureNode] = Field(default_factory=list)
     rendering_notes: str
+    warnings: list[str] = Field(default_factory=list)
 
 
 class Shape2D(BaseModel):
@@ -314,7 +314,10 @@ class Design2DRendering(BaseModel):
     shapes: list[Shape2D]
     total_shapes: int
     canvas_size: CanvasSize
+    svg_url: str | None = None
+    feature_tree: list[FeatureNode] = Field(default_factory=list)
     rendering_notes: str
+    warnings: list[str] = Field(default_factory=list)
 
 
 class ExportFormat(BaseModel):
@@ -335,3 +338,5 @@ class CompleteDesignResponse(BaseModel):
     rendering_3d: Design3DRendering | None = None
     rendering_2d: Design2DRendering | None = None
     export_options: DesignExportOptions
+    validation_summary: ValidationSummary | None = None
+    validation_issues: list[ValidationIssue] = Field(default_factory=list)

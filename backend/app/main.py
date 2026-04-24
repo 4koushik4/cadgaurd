@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from fastapi import FastAPI
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from app.api.routes import router
 from app.core.config import get_settings
@@ -33,6 +36,10 @@ app.add_middleware(
 )
 
 app.include_router(router, prefix=settings.api_prefix)
+
+generated_dir = Path(__file__).resolve().parents[1] / "generated"
+generated_dir.mkdir(parents=True, exist_ok=True)
+app.mount("/generated", StaticFiles(directory=str(generated_dir)), name="generated")
 
 app.add_exception_handler(CADGuardError, cadguard_exception_handler)
 app.add_exception_handler(RequestValidationError, validation_exception_handler)

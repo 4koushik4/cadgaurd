@@ -37,6 +37,7 @@ from app.services.ai_copilot import AICopilotService
 from app.services.ai_service import AIService
 from app.services.cad_service import CADService
 from app.services.cad_2d_service import CAD2DService
+from app.services.cad_generator import CADGeneratorService
 from app.services.design_creator_service import DesignGeneratorService
 from app.services.chatbot import ChatbotService
 from app.services.simulation_service import SimulationService
@@ -56,6 +57,10 @@ def get_cad_2d_service() -> CAD2DService:
 
 def get_design_generator_service(settings: Settings = Depends(get_settings)) -> DesignGeneratorService:
     return DesignGeneratorService(settings=settings)
+
+
+def get_cad_generator_service() -> CADGeneratorService:
+    return CADGeneratorService()
 
 
 def get_validation_service(settings: Settings = Depends(get_settings)) -> ValidationService:
@@ -391,82 +396,185 @@ async def generate_design(
     """Generate a design concept using AI."""
     logger.info("Generating design for prompt: %s", request.user_prompt[:50])
     result = await run_in_threadpool(
-        design_service.generate_design,
+        design_service.generate_definition,
         request.user_prompt,
         request.design_type,
     )
-    return result
+    return AIDesignConcept(**result)
 
 
 @router.post("/design/render-3d", response_model=Design3DRendering)
 async def render_design_3d(
     request: DesignGenerationInput,
     design_service: DesignGeneratorService = Depends(get_design_generator_service),
+    cad_generator: CADGeneratorService = Depends(get_cad_generator_service),
 ) -> Design3DRendering:
     """Generate 3D rendering primitives for a design."""
     logger.info("Rendering design in 3D")
     design = await run_in_threadpool(
-        design_service.generate_design,
+        design_service.generate_definition,
         request.user_prompt,
         request.design_type,
     )
-    result = await run_in_threadpool(
-        design_service.convert_to_3d_primitives,
-        design,
+    generated = await run_in_threadpool(cad_generator.generate, design)
+
+    if generated.get("type") != "3D":
+        raise CADGuardError("Requested 3D rendering but generated definition is 2D", 400)
+
+    return Design3DRendering(
+        mesh_url=generated["stl_url"],
+        bounding_box=generated["bounding_box"],
+        feature_tree=generated.get("feature_tree", []),
+        rendering_notes="STL mesh generated from parametric CAD definition",
+        warnings=generated.get("warnings", []),
     )
-    return Design3DRendering(**result)
 
 
 @router.post("/design/render-2d", response_model=Design2DRendering)
 async def render_design_2d(
     request: DesignGenerationInput,
     design_service: DesignGeneratorService = Depends(get_design_generator_service),
+    cad_generator: CADGeneratorService = Depends(get_cad_generator_service),
 ) -> Design2DRendering:
     """Generate 2D rendering shapes for a design."""
     logger.info("Rendering design in 2D")
     design = await run_in_threadpool(
-        design_service.generate_design,
+        design_service.generate_definition,
         request.user_prompt,
         request.design_type,
     )
-    result = await run_in_threadpool(
-        design_service.convert_to_2d_shapes,
-        design,
+    generated = await run_in_threadpool(cad_generator.generate, design)
+
+    if generated.get("type") != "2D":
+        result = await run_in_threadpool(design_service.convert_to_2d_shapes, design)
+        return Design2DRendering(**result)
+
+    shapes = []
+    for shape in generated.get("shapes", []):
+        if shape.get("type") == "rectangle":
+            position = shape.get("position", [20, 20])
+            shapes.append(
+                {
+                    "type": "rectangle",
+                    "x": float(position[0]),
+                    "y": float(position[1]),
+                    "width": float(shape.get("width", 10)),
+                    "height": float(shape.get("height", 10)),
+                    "color": "none",
+                    "stroke": "#38bdf8",
+                    "stroke_width": 2,
+                }
+            )
+        elif shape.get("type") == "circle":
+            position = shape.get("position", [20, 20])
+            shapes.append(
+                {
+                    "type": "circle",
+                    "cx": float(position[0]),
+                    "cy": float(position[1]),
+                    "r": float(shape.get("radius", 5)),
+                    "color": "none",
+                    "stroke": "#f97316",
+                    "stroke_width": 2,
+                }
+            )
+
+    return Design2DRendering(
+        shapes=shapes,
+        total_shapes=len(shapes),
+        canvas_size=generated.get("canvas", {"width": 400, "height": 300}),
+        svg_url=generated.get("svg_url"),
+        feature_tree=generated.get("feature_tree", []),
+        rendering_notes="2D drawing generated from parametric CAD definition",
+        warnings=generated.get("warnings", []),
     )
-    return Design2DRendering(**result)
 
 
 @router.post("/design/complete", response_model=CompleteDesignResponse)
 async def complete_design_generation(
     request: DesignGenerationInput,
     design_service: DesignGeneratorService = Depends(get_design_generator_service),
+    cad_generator: CADGeneratorService = Depends(get_cad_generator_service),
+    cad_service: CADService = Depends(get_cad_service),
+    validation_service: ValidationService = Depends(get_validation_service),
 ) -> CompleteDesignResponse:
     """Generate complete design with all renderings and export options."""
     logger.info("Generating complete design")
 
     # Generate design concept
     design = await run_in_threadpool(
-        design_service.generate_design,
+        design_service.generate_definition,
         request.user_prompt,
         request.design_type,
     )
 
+    generated = await run_in_threadpool(cad_generator.generate, design)
+
     # Generate 3D and 2D renderings
     rendering_3d = None
     rendering_2d = None
+    validation_summary = None
+    validation_issues = []
 
-    if design.type == "3d":
-        rendering_3d_dict = await run_in_threadpool(
-            design_service.convert_to_3d_primitives,
+    if generated.get("type") == "3D":
+        rendering_3d = Design3DRendering(
+            mesh_url=generated["stl_url"],
+            bounding_box=generated["bounding_box"],
+            feature_tree=generated.get("feature_tree", []),
+            rendering_notes="STL mesh generated from parametric CAD definition",
+            warnings=generated.get("warnings", []),
+        )
+
+        rendering_2d_dict = await run_in_threadpool(
+            design_service.convert_to_2d_shapes,
             design,
         )
-        rendering_3d = Design3DRendering(**rendering_3d_dict)
+        rendering_2d = Design2DRendering(**rendering_2d_dict)
 
-    rendering_2d_dict = await run_in_threadpool(
-        design_service.convert_to_2d_shapes,
-        design,
-    )
-    rendering_2d = Design2DRendering(**rendering_2d_dict)
+        mesh = generated.get("mesh")
+        if mesh is not None:
+            geometry = await run_in_threadpool(cad_service.extract_geometry_stats, mesh)
+            validation_issues, validation_summary = await run_in_threadpool(validation_service.run_checks, geometry)
+    else:
+        shapes = []
+        for shape in generated.get("shapes", []):
+            if shape.get("type") == "rectangle":
+                position = shape.get("position", [20, 20])
+                shapes.append(
+                    {
+                        "type": "rectangle",
+                        "x": float(position[0]),
+                        "y": float(position[1]),
+                        "width": float(shape.get("width", 10)),
+                        "height": float(shape.get("height", 10)),
+                        "color": "none",
+                        "stroke": "#38bdf8",
+                        "stroke_width": 2,
+                    }
+                )
+            elif shape.get("type") == "circle":
+                position = shape.get("position", [20, 20])
+                shapes.append(
+                    {
+                        "type": "circle",
+                        "cx": float(position[0]),
+                        "cy": float(position[1]),
+                        "r": float(shape.get("radius", 5)),
+                        "color": "none",
+                        "stroke": "#f97316",
+                        "stroke_width": 2,
+                    }
+                )
+
+        rendering_2d = Design2DRendering(
+            shapes=shapes,
+            total_shapes=len(shapes),
+            canvas_size=generated.get("canvas", {"width": 400, "height": 300}),
+            svg_url=generated.get("svg_url"),
+            feature_tree=generated.get("feature_tree", []),
+            rendering_notes="2D drawing generated from parametric CAD definition",
+            warnings=generated.get("warnings", []),
+        )
 
     # Get export options
     export_options_dict = await run_in_threadpool(
@@ -475,8 +583,10 @@ async def complete_design_generation(
     )
 
     return CompleteDesignResponse(
-        design_concept=design,
+        design_concept=AIDesignConcept(**design),
         rendering_3d=rendering_3d,
         rendering_2d=rendering_2d,
         export_options=export_options_dict,
+        validation_summary=validation_summary,
+        validation_issues=validation_issues,
     )

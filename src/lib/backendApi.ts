@@ -91,6 +91,17 @@ export interface BackendAutoFixResponse {
 
 const API_BASE = import.meta.env.VITE_FASTAPI_URL || 'http://localhost:8000';
 
+export function resolveBackendUrl(pathOrUrl: string): string {
+  if (!pathOrUrl) return pathOrUrl;
+  if (pathOrUrl.startsWith('http://') || pathOrUrl.startsWith('https://')) {
+    return pathOrUrl;
+  }
+  if (pathOrUrl.startsWith('/')) {
+    return `${API_BASE}${pathOrUrl}`;
+  }
+  return `${API_BASE}/${pathOrUrl}`;
+}
+
 async function fetchCadAsFile(fileUrl: string, fileFormat: string): Promise<File> {
   const response = await fetch(fileUrl);
   if (!response.ok) {
@@ -567,34 +578,24 @@ export async function measure2DAngle(v1: [number, number], v2: [number, number])
 // AI Design Creator APIs
 export interface AIDesignConcept {
   type: string;
-  description: string;
-  dimensions: string;
-  structure: string;
-  recommendations: string;
-  rendering_hints: {
-    primary_shapes: string[];
-    colors: string[];
-    complexity_level: string;
-  };
+  model: string;
+  parameters?: Record<string, unknown>;
+  shapes?: Array<Record<string, unknown>>;
+  operations: string[];
 }
 
-export interface Primitive3D {
-  type: string;
-  position: number[];
-  scale?: number[];
-  radius?: number;
-  height?: number;
-  color: string;
-  rotation?: number[];
-  major_radius?: number;
-  minor_radius?: number;
+export interface FeatureNode {
+  name: string;
+  operation: string;
+  parameters: Record<string, unknown>;
 }
 
 export interface Design3DRendering {
-  primitives: Primitive3D[];
-  total_primitives: number;
+  mesh_url: string;
   bounding_box: Record<string, number>;
+  feature_tree: FeatureNode[];
   rendering_notes: string;
+  warnings: string[];
 }
 
 export interface Shape2D {
@@ -617,13 +618,18 @@ export interface Design2DRendering {
   shapes: Shape2D[];
   total_shapes: number;
   canvas_size: { width: number; height: number };
+  svg_url?: string;
+  feature_tree: FeatureNode[];
   rendering_notes: string;
+  warnings: string[];
 }
 
 export interface CompleteDesignResponse {
   design_concept: AIDesignConcept;
   rendering_3d?: Design3DRendering;
   rendering_2d?: Design2DRendering;
+  validation_summary?: BackendValidationSummary;
+  validation_issues: BackendValidationIssue[];
   export_options: {
     recommended_formats: Array<{
       format: string;

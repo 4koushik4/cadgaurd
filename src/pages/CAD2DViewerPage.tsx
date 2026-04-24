@@ -1,7 +1,23 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useMemo } from 'react';
 import { Upload, ZoomIn, ZoomOut, Eye, Grid3X3 } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { load2DFile, analyze2DGeometry, validate2DGeometry, CAD2DFileResponse, Geometry2DAnalysis, Geometry2DValidation } from '../lib/backendApi';
+
+type CAD2DEntity = {
+  type: string;
+  start?: [number, number];
+  end?: [number, number];
+  center?: [number, number];
+  radius?: number;
+  start_angle?: number;
+  end_angle?: number;
+  vertices?: Array<[number, number]>;
+  corner1?: [number, number];
+  corner2?: [number, number];
+  position?: [number, number];
+  content?: string;
+  is_closed?: boolean;
+};
 
 export function CAD2DViewerPage() {
   const [file, setFile] = useState<File | null>(null);
@@ -15,7 +31,43 @@ export function CAD2DViewerPage() {
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
   const canvasRef = useRef<SVGSVGElement>(null);
+  const canvasContainerRef = useRef<HTMLDivElement>(null);
   const [selectedTab, setSelectedTab] = useState<'viewer' | 'analysis' | 'validation'>('viewer');
+
+  const flattenedEntities = useMemo(() => {
+    if (!fileData?.layers) return [] as CAD2DEntity[];
+
+    const entities: CAD2DEntity[] = [];
+    const layers = fileData.layers as Record<string, unknown>;
+    Object.values(layers).forEach((value) => {
+      if (Array.isArray(value)) {
+        value.forEach((entity) => {
+          if (entity && typeof entity === 'object' && 'type' in entity) {
+            entities.push(entity as CAD2DEntity);
+          }
+        });
+      }
+    });
+
+    return entities;
+  }, [fileData]);
+
+  useEffect(() => {
+    const container = canvasContainerRef.current;
+    if (!container) return;
+
+    const handleWheel = (event: WheelEvent) => {
+      event.preventDefault();
+      const direction = event.deltaY < 0 ? 1 : -1;
+      setZoom((prev) => Math.max(0.1, Math.min(5, prev + direction * 0.1)));
+    };
+
+    container.addEventListener('wheel', handleWheel, { passive: false });
+
+    return () => {
+      container.removeEventListener('wheel', handleWheel);
+    };
+  }, []);
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const uploadedFile = e.target.files?.[0];
@@ -50,12 +102,6 @@ export function CAD2DViewerPage() {
     } finally {
       setLoading(false);
     }
-  };
-
-  const handleMouseWheel = (e: React.WheelEvent) => {
-    e.preventDefault();
-    const direction = e.deltaY < 0 ? 1 : -1;
-    setZoom((prev) => Math.max(0.1, Math.min(5, prev + direction * 0.1)));
   };
 
   const handleMouseDown = (e: React.MouseEvent) => {
@@ -93,6 +139,125 @@ export function CAD2DViewerPage() {
 
     setZoom(Math.min(newZoom * 0.9, 3));
     setPan({ x: 50, y: 50 });
+  };
+
+  const mapPointToViewport = (point: [number, number]): [number, number] => {
+    const bbox = fileData?.bounding_box;
+    if (!bbox) return point;
+
+    const padding = 20;
+    const viewportWidth = 400;
+    const viewportHeight = 300;
+    const width = bbox.width > 0 ? bbox.width : 1;
+    const height = bbox.height > 0 ? bbox.height : 1;
+
+    const x = padding + ((point[0] - bbox.min_x) / width) * (viewportWidth - padding * 2);
+    const y = viewportHeight - (padding + ((point[1] - bbox.min_y) / height) * (viewportHeight - padding * 2));
+
+    return [x, y];
+  };
+
+  const renderEntity = (entity: CAD2DEntity, index: number) => {
+    const stroke = '#38bdf8';
+    const fill = 'rgba(56, 189, 248, 0.18)';
+
+    if (entity.type === 'line' && entity.start && entity.end) {
+      const [x1, y1] = mapPointToViewport(entity.start);
+      const [x2, y2] = mapPointToViewport(entity.end);
+      return <line key={`line-${index}`} x1={x1} y1={y1} x2={x2} y2={y2} stroke={stroke} strokeWidth="1.5" />;
+    }
+
+    if (entity.type === 'circle' && entity.center && typeof entity.radius === 'number') {
+      const [cx, cy] = mapPointToViewport(entity.center);
+      const bbox = fileData?.bounding_box;
+      const scaleX = bbox && bbox.width > 0 ? (400 - 40) / bbox.width : 1;
+      const scaleY = bbox && bbox.height > 0 ? (300 - 40) / bbox.height : 1;
+      const r = entity.radius * Math.min(scaleX, scaleY);
+
+      return (
+        <circle
+          key={`circle-${index}`}
+          cx={cx}
+          cy={cy}
+          r={Math.max(1, r)}
+          stroke={stroke}
+          fill={fill}
+          strokeWidth="1.5"
+        />
+      );
+    }
+
+    if (entity.type === 'arc' && entity.center && typeof entity.radius === 'number') {
+      const startDeg = entity.start_angle ?? 0;
+      const endDeg = entity.end_angle ?? 0;
+      const startRad = (startDeg * Math.PI) / 180;
+      const endRad = (endDeg * Math.PI) / 180;
+      const startPoint: [number, number] = [
+        entity.center[0] + entity.radius * Math.cos(startRad),
+        entity.center[1] + entity.radius * Math.sin(startRad),
+      ];
+      const endPoint: [number, number] = [
+        entity.center[0] + entity.radius * Math.cos(endRad),
+        entity.center[1] + entity.radius * Math.sin(endRad),
+      ];
+
+      const [x1, y1] = mapPointToViewport(startPoint);
+      const [x2, y2] = mapPointToViewport(endPoint);
+      const bbox = fileData?.bounding_box;
+      const scaleX = bbox && bbox.width > 0 ? (400 - 40) / bbox.width : 1;
+      const scaleY = bbox && bbox.height > 0 ? (300 - 40) / bbox.height : 1;
+      const r = Math.max(1, entity.radius * Math.min(scaleX, scaleY));
+      const delta = ((endDeg - startDeg) % 360 + 360) % 360;
+      const largeArcFlag = delta > 180 ? 1 : 0;
+
+      return (
+        <path
+          key={`arc-${index}`}
+          d={`M ${x1} ${y1} A ${r} ${r} 0 ${largeArcFlag} 1 ${x2} ${y2}`}
+          stroke={stroke}
+          fill="none"
+          strokeWidth="1.5"
+        />
+      );
+    }
+
+    if ((entity.type === 'polyline' || entity.type === 'lwpolyline') && entity.vertices && entity.vertices.length > 1) {
+      const points = entity.vertices.map((p) => mapPointToViewport(p)).map(([x, y]) => `${x},${y}`).join(' ');
+
+      if (entity.is_closed) {
+        return <polygon key={`poly-${index}`} points={points} stroke={stroke} fill={fill} strokeWidth="1.5" />;
+      }
+
+      return <polyline key={`polyline-${index}`} points={points} stroke={stroke} fill="none" strokeWidth="1.5" />;
+    }
+
+    if (entity.type === 'rectangle' && entity.corner1 && entity.corner2) {
+      const [x1, y1] = mapPointToViewport(entity.corner1);
+      const [x2, y2] = mapPointToViewport(entity.corner2);
+      return (
+        <rect
+          key={`rect-${index}`}
+          x={Math.min(x1, x2)}
+          y={Math.min(y1, y2)}
+          width={Math.abs(x2 - x1)}
+          height={Math.abs(y2 - y1)}
+          stroke={stroke}
+          fill={fill}
+          strokeWidth="1.5"
+        />
+      );
+    }
+
+    if (entity.type === 'text' && entity.position) {
+      const [x, y] = mapPointToViewport(entity.position);
+      return (
+        <text key={`text-${index}`} x={x} y={y} fill="#e2e8f0" fontSize="10">
+          {entity.content || 'TEXT'}
+        </text>
+      );
+    }
+
+    return null;
   };
 
   return (
@@ -182,8 +347,8 @@ export function CAD2DViewerPage() {
                 </div>
               ) : (
                 <div
+                  ref={canvasContainerRef}
                   className="bg-slate-950/60 border border-slate-700 rounded-lg overflow-hidden"
-                  onWheel={handleMouseWheel}
                   onMouseDown={handleMouseDown}
                   onMouseMove={handleMouseMove}
                   onMouseUp={handleMouseUp}
@@ -208,17 +373,14 @@ export function CAD2DViewerPage() {
                     </defs>
                     <rect width="400" height="300" fill="url(#grid)" />
 
-                    {/* Placeholder Content - In real implementation, render actual DXF/SVG content */}
-                    <rect x="50" y="50" width="100" height="80" fill="#00f0ff" opacity="0.3" stroke="#00f0ff" strokeWidth="2" />
-                    <circle cx="200" cy="100" r="30" fill="#8a2eff" opacity="0.3" stroke="#8a2eff" strokeWidth="2" />
-                    <polygon
-                      points="300,50 350,150 250,150"
-                      fill="#ff00c8"
-                      opacity="0.3"
-                      stroke="#ff00c8"
-                      strokeWidth="2"
-                    />
+                    {flattenedEntities.map((entity, index) => renderEntity(entity, index))}
                   </svg>
+                </div>
+              )}
+
+              {!loading && flattenedEntities.length === 0 && (
+                <div className="mt-3 text-xs text-slate-400">
+                  No renderable entities found for preview. Analysis and validation results are still available.
                 </div>
               )}
 
