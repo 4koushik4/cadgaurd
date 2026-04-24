@@ -63,7 +63,7 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
   const refreshProjectsAndStats = async () => {
     const [{ data: projectsData }, { data: validationsData }, { data: issuesData }, { data: runningValidations }] = await Promise.all([
       supabase.from('projects').select('*').order('created_at', { ascending: false }),
-      supabase.from('validations').select('id, status').in('status', ['running', 'queued', 'processing']),
+      supabase.from('validations').select('id, status').in('status', ['pending', 'running']),
       supabase.from('issues').select('severity').eq('severity', 'high').eq('status', 'open'),
       supabase
         .from('validations')
@@ -83,9 +83,10 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
 
     const avg = rows.reduce((acc, item) => acc + (item.quality_score || 0), 0) / (rows.length || 1);
     const processingProjects = rows.filter((item) => item.status === 'processing').length;
+    const activeValidationRows = liveRows.filter((row) => row.status === 'pending' || row.status === 'running').length;
     setStats({
       totalProjects: rows.length,
-      activeValidations: Math.max(validationsData?.length || 0, processingProjects),
+      activeValidations: Math.max(validationsData?.length || 0, activeValidationRows, processingProjects),
       criticalIssues: issuesData?.length || 0,
       avgQualityScore: Math.round(avg),
     });
