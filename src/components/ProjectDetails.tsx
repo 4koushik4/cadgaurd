@@ -12,6 +12,7 @@ import {
 import { ValidationResults } from './ValidationResults';
 import { SimulationView } from './SimulationView';
 import { CADViewer } from './CADViewer';
+import { CAD3DToolsPanel } from './CAD3DToolsPanel';
 import { useAppData } from '../contexts/AppDataContext';
 
 interface Project {
@@ -68,7 +69,7 @@ interface ProjectDetailsProps {
 }
 
 export function ProjectDetails({ project, onBack, onUpdate, onValidationActivityChange }: ProjectDetailsProps) {
-  const [activeTab, setActiveTab] = useState<'overview' | 'validation' | 'simulation' | '3d' | 'ai'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'validation' | 'simulation' | '3d' | 'cadtools' | 'ai'>('overview');
   const [validating, setValidating] = useState(false);
   const [simulating, setSimulating] = useState(false);
   const [generatingReport, setGeneratingReport] = useState(false);
@@ -578,6 +579,7 @@ export function ProjectDetails({ project, onBack, onUpdate, onValidationActivity
     { id: 'validation' as const, label: 'Validation Results' },
     { id: 'simulation' as const, label: 'Stress Simulation' },
     { id: '3d' as const, label: '3D Viewer' },
+    { id: 'cadtools' as const, label: '3D CAD Tools' },
     { id: 'ai' as const, label: 'AI Copilot' },
   ];
 
@@ -905,6 +907,10 @@ export function ProjectDetails({ project, onBack, onUpdate, onValidationActivity
 
         {activeTab === '3d' && (
           <CADViewer fileUrl={project.file_url} fileFormat={project.file_format} issues={viewerIssues} stressMap={latestStressMap} />
+        )}
+
+        {activeTab === 'cadtools' && (
+          <CAD3DToolsPanel fileUrl={project.file_url} fileFormat={project.file_format} />
         )}
 
         {activeTab === 'ai' && (
